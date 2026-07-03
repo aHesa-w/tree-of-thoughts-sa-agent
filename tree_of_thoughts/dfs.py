@@ -1,23 +1,24 @@
 import uuid
 import json
-from typing import Optional
+import time
+from typing import Optional, Dict, Any, List
 from swarms import create_file_in_folder
-from tree_of_thoughts.agent import TotAgent
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Any
 from loguru import logger
 from dotenv import load_dotenv
+
+from tree_of_thoughts.agent import TotAgent
+from tree_of_thoughts.base import SearchStrategy, SearchResult, SearchHistory
 
 load_dotenv()
 
 
-class ToTDFSAgent:
+class ToTDFSAgent(SearchStrategy):
     """
-    A class to perform Depth-First Search (DFS) using the TotAgent, with pruning based on evaluation scores.
+    Depth-First Search using the TotAgent, with pruning based on evaluation scores.
 
-    Methods:
-        dfs(state: str, step: int = 0) -> Optional[Thought]: Performs DFS with pruning and returns the final thought.
-        visualize_thoughts(thoughts: List[Thought]): Visualizes all thoughts including the highest-rated thought.
+    Implements SearchStrategy so it can be used interchangeably with BFS and SA.
+    The original run() method is preserved for backward compatibility.
     """
 
     def __init__(
@@ -32,24 +33,17 @@ class ToTDFSAgent:
         *args,
         **kwargs,
     ):
-        """
-        Initialize the ToTDFSAgent class.
-
-        Args:
-            agent (TotAgent): An instance of the TotAgent class to generate and evaluate thoughts.
-            threshold (float): The evaluation threshold for selecting promising thoughts.
-            max_loops (int): The maximum depth for the DFS algorithm.
-            prune_threshold (float): The threshold below which branches are pruned. Default is 0.5.
-        """
         self.id = id
         self.agent = agent
         self.threshold = threshold
         self.max_loops = max_loops
         self.prune_threshold = prune_threshold
-        self.all_thoughts = []  # Store all thoughts generated during DFS
-        self.pruned_branches = []  # Store metadata on pruned branches
+        self.all_thoughts: List[Dict[str, Any]] = []
+        self.pruned_branches: List[Dict[str, Any]] = []
         self.number_of_agents = number_of_agents
         self.autosave_on = autosave_on
+        self._api_calls: int = 0
+        self._history = SearchHistory()
 
         self.agent.max_loops = max_loops
 
@@ -67,6 +61,7 @@ class ToTDFSAgent:
             next_thoughts = list(
                 executor.map(self.agent.run, [state] * self.number_of_agents)
             )
+        self._api_calls += self.number_of_agents
 
         next_thoughts.sort(key=lambda x: x["evaluation"], reverse=False)
 
@@ -92,12 +87,15 @@ class ToTDFSAgent:
             }
         )
 
-    def run(self, task: str, *args, **kwargs) -> str:
+    def search(self, initial_state: str) -> SearchResult:
+        """Implement SearchStrategy.search(), returning a structured SearchResult."""
+        start_time = time.time()
+        self.all_thoughts = []
+        self.pruned_branches = []
+        self._api_calls = 0
 
-        # Initialize the first agent run
-        initial_thoughts = self.dfs(task, *args, **kwargs)
+        initial_thoughts = self.dfs(initial_state)
 
-        # Chain the agents' outputs through subsequent agents
         for i in range(1, self.max_loops):
             if initial_thoughts:
                 next_task = initial_thoughts["thought"]
@@ -105,9 +103,51 @@ class ToTDFSAgent:
             else:
                 break
 
-        # After chaining, sort all final thoughts
         self.all_thoughts.sort(key=lambda x: x["evaluation"], reverse=False)
+        elapsed = time.time() - start_time
 
+        best_thought = self.all_thoughts[-1] if self.all_thoughts else None
+
+        result = SearchResult(
+            final_answer=best_thought["thought"] if best_thought else "",
+            best_score=best_thought["evaluation"] if best_thought else 0.0,
+            execution_time=elapsed,
+            total_api_calls=self._api_calls,
+            strategy="DFS",
+            parameters={
+                "threshold": self.threshold,
+                "max_loops": self.max_loops,
+                "prune_threshold": self.prune_threshold,
+                "number_of_agents": self.number_of_agents,
+            },
+            thought_graph=[
+                {
+                    "thought": t["thought"],
+                    "evaluation": t["evaluation"],
+                }
+                for t in self.all_thoughts
+            ],
+        )
+
+        if self.autosave_on:
+            create_file_in_folder(
+                "tree_of_thoughts_runs",
+                f"tree_of_thoughts_run{self.id}.json",
+                json.dumps(
+                    {
+                        "final_thoughts": self.all_thoughts,
+                        "pruned_branches": self.pruned_branches,
+                        "highest_rated_thought": best_thought,
+                    },
+                    indent=4,
+                ),
+            )
+
+        return result
+
+    def run(self, task: str, *args, **kwargs) -> str:
+        """Original run() method. Returns JSON string for backward compatibility."""
+        result = self.search(task)
         tree_dict = {
             "final_thoughts": self.all_thoughts,
             "pruned_branches": self.pruned_branches,
@@ -115,7 +155,6 @@ class ToTDFSAgent:
                 self.all_thoughts[-1] if self.all_thoughts else None
             ),
         }
-
         json_string = json.dumps(tree_dict, indent=4)
 
         if self.autosave_on:

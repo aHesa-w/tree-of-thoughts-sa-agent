@@ -1,6 +1,6 @@
 import uuid
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Callable
 from swarms import Agent
 from swarm_models import OpenAIFunctionCaller
 from typing import Any
@@ -10,13 +10,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def string_to_dict(thought_string):
-    return eval(thought_string)
-
-
 TREE_OF_THOUGHTS_SYS_PROMPT = """
-You are an expert problem-solving agent designed to not only solve complex problems but also critically evaluate the quality of your thought process and final answers. 
-Your task is to follow a structured approach to generate solutions, assess your thoughts, and provide a rating for each on a scale of 0.1 to 1.0. 
+You are an expert problem-solving agent designed to not only solve complex problems but also critically evaluate the quality of your thought process and final answers.
+Your task is to follow a structured approach to generate solutions, assess your thoughts, and provide a rating for each on a scale of 0.1 to 1.0.
 This rating should reflect the accuracy and quality of your reasoning and final answer.
 
 ### Instructions:
@@ -44,15 +40,19 @@ This rating should reflect the accuracy and quality of your reasoning and final 
 5. **Final Evaluation:**
    - Evaluate the overall quality and accuracy of your final answer.
    - Provide a final evaluation score based on the same 0.1 to 1.0 scale.
-   
+
 """
 
 
 class Thought(BaseModel):
     thought: str
     evaluation: Optional[float] = Field(
+        default=None,
         description="The evaluation of the thought. It can be a number between 0.1 and 1.0 being 0.1 the worst and 1.0 the best."
     )
+    metadata: dict = Field(default_factory=dict)
+    parent_id: Optional[str] = None
+    node_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
 
 class TotAgent:
@@ -75,6 +75,8 @@ class TotAgent:
         max_loops: int = None,
         use_openai_caller: bool = True,
         model: Optional[Any] = None,
+        evaluator: Optional[Callable[[str, str], float]] = None,
+        auto_detect_evaluator: bool = False,
         *args,
         **kwargs,
     ):
@@ -84,12 +86,18 @@ class TotAgent:
         Args:
             id (str, optional): The unique identifier for the agent. Defaults to a randomly generated UUID.
             max_loops (int, optional): The maximum number of loops the agent can run. Defaults to None.
-            *args: Variable length argument list.
-            **kwargs: Arbitrary keyword arguments.
+            use_openai_caller (bool): Whether to use the default OpenAI function caller.
+            model: Optional custom model instance.
+            evaluator: Optional external evaluator function. Signature: (task, thought) -> float.
+                If provided, its score overrides the LLM self-evaluation.
+            auto_detect_evaluator (bool): If True and no evaluator given, use AutoEvaluator
+                to automatically choose a scoring strategy based on task type.
         """
         self.id = id
         self.max_loops = max_loops
         self.model = model
+        self.evaluator = evaluator
+        self.auto_detect_evaluator = auto_detect_evaluator
 
         if use_openai_caller:
             self.model = OpenAIFunctionCaller(
@@ -122,6 +130,9 @@ class TotAgent:
         """
         Runs a task using the agent and returns the output as a dictionary.
 
+        If an external evaluator is registered, its score overrides the LLM self-evaluation.
+        If auto_detect_evaluator is enabled and no evaluator is set, AutoEvaluator is used.
+
         Args:
             task (str): The task to be run by the agent.
 
@@ -129,4 +140,19 @@ class TotAgent:
             dict: The output of the agent as a dictionary.
         """
         agent_output = self.agent.run(task)
-        return string_to_dict(agent_output)
+        from tree_of_thoughts.base import string_to_dict
+        result = string_to_dict(agent_output)
+
+        if self.evaluator:
+            task_str = task if isinstance(task, str) else str(task)
+            thought_str = result.get("thought", "")
+            result["evaluation"] = self.evaluator(task_str, thought_str)
+        elif self.auto_detect_evaluator:
+            from tree_of_thoughts.evaluator import AutoEvaluator
+            task_str = task if isinstance(task, str) else str(task)
+            thought_str = result.get("thought", "")
+            eval_score = AutoEvaluator.evaluate(task_str, thought_str)
+            if eval_score >= 0:
+                result["evaluation"] = eval_score
+
+        return result
