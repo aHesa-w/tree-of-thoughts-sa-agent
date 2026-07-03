@@ -4,14 +4,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
 from loguru import logger
 
 from tree_of_thoughts.agent import TotAgent
 from tree_of_thoughts.base import string_to_dict
 from tree_of_thoughts.base import SearchStrategy, SearchResult, SearchHistory
-
-load_dotenv()
 
 
 class BFSWithTotAgent(SearchStrategy):

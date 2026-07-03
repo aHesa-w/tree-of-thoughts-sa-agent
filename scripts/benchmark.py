@@ -2,31 +2,26 @@
 """Benchmark script for comparing ToT search strategies.
 
 Usage:
-    python scripts/benchmark.py --task "use 2 3 4 6 to make 24" --strategies dfs bfs sa
+    python scripts/benchmark.py --strategies dfs bfs sa
 
 Output:
-        a comparison table and individual SearchResult details.
+    a comparison table and individual SearchResult details.
 """
 
 import argparse
-import time
-from typing import List, Dict, Any
-
-from dotenv import load_dotenv
+from typing import Dict
 
 from tree_of_thoughts import TotAgent, ToTDFSAgent, BFSWithTotAgent, ToTSAStrategy
 from tree_of_thoughts.base import SearchResult
 
-load_dotenv()
-
 
 def run_benchmark(
     task: str,
-    strategies: List[str],
+    strategies: list,
     evaluator: str = "self",
 ) -> Dict[str, SearchResult]:
     """Run all requested strategies on the same task and return results."""
-    agent = TotAgent(use_openai_caller=False)
+    agent = TotAgent()
     if evaluator == "auto":
         agent.auto_detect_evaluator = True
 
@@ -110,7 +105,6 @@ def print_comparison_table(results: Dict[str, SearchResult]):
             print(f"    Iterations: {len(sa.temperature_curve)}")
             print(f"    Temperature: {temp_start:.2f} -> {temp_end:.4f}")
             print(f"    Acceptance rate: {accept_rate:.1%}")
-            print(f"    Reheat events: inferred from temp bumps")
 
 
 def main():

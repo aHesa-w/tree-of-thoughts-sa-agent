@@ -1,16 +1,13 @@
 import uuid
 import json
 import time
+import os
 from typing import Optional, Dict, Any, List
-from swarms import create_file_in_folder
 from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
-from dotenv import load_dotenv
 
 from tree_of_thoughts.agent import TotAgent
 from tree_of_thoughts.base import SearchStrategy, SearchResult, SearchHistory
-
-load_dotenv()
 
 
 class ToTDFSAgent(SearchStrategy):
@@ -130,18 +127,21 @@ class ToTDFSAgent(SearchStrategy):
         )
 
         if self.autosave_on:
-            create_file_in_folder(
-                "tree_of_thoughts_runs",
-                f"tree_of_thoughts_run{self.id}.json",
-                json.dumps(
+            output_dir = "tree_of_thoughts_runs"
+            os.makedirs(output_dir, exist_ok=True)
+            file_path = os.path.join(
+                output_dir, f"tree_of_thoughts_run{self.id}.json"
+            )
+            with open(file_path, "w") as f:
+                json.dump(
                     {
                         "final_thoughts": self.all_thoughts,
                         "pruned_branches": self.pruned_branches,
                         "highest_rated_thought": best_thought,
                     },
+                    f,
                     indent=4,
-                ),
-            )
+                )
 
         return result
 
@@ -158,10 +158,12 @@ class ToTDFSAgent(SearchStrategy):
         json_string = json.dumps(tree_dict, indent=4)
 
         if self.autosave_on:
-            create_file_in_folder(
-                "tree_of_thoughts_runs",
-                f"tree_of_thoughts_run{self.id}.json",
-                json_string,
+            output_dir = "tree_of_thoughts_runs"
+            os.makedirs(output_dir, exist_ok=True)
+            file_path = os.path.join(
+                output_dir, f"tree_of_thoughts_run{self.id}.json"
             )
+            with open(file_path, "w") as f:
+                f.write(json_string)
 
         return json_string

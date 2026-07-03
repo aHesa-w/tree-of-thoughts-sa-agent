@@ -1,15 +1,14 @@
 """
 Usage: python examples/bfs.py
 
-Make sure OPENAI_API_KEY is set in your environment or .env file.
+No external LLM required. The BFS strategy generates candidates via
+TotAgent.run() which parses and evaluates thought strings.
 """
 from tree_of_thoughts import TotAgent, BFSWithTotAgent
-from dotenv import load_dotenv
 
-load_dotenv()
 
 # Create the agent
-tot_agent = TotAgent(use_openai_caller=False)
+tot_agent = TotAgent()
 
 # BFS strategy with breadth limit
 bfs_agent = BFSWithTotAgent(

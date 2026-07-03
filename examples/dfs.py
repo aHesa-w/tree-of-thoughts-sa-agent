@@ -1,7 +1,5 @@
 from tree_of_thoughts import TotAgent, ToTDFSAgent
-from dotenv import load_dotenv
 
-load_dotenv()
 
 # Create an instance of the TotAgent class
 tot_agent = TotAgent()

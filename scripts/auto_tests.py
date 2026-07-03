@@ -1,108 +1,78 @@
+"""Auto-generate pytest skeleton files from the actual module classes.
+
+Generates test templates by inspecting the current classes in
+tree_of_thoughts. No external model API calls.
+"""
+
 import inspect
 import os
-import re
 import threading
+from typing import List, Type
 
-########
-from dotenv import load_dotenv
-
-from scripts.auto_tests_docs.docs import TEST_WRITER_SOP_PROMPT
-from swarms import OpenAIChat
-
-#########
-from tree_of_thoughts.agent import (
-    ToTAgent,
-)
-from tree_of_thoughts.search_algorithms import (
-    MonteCarloSearch,
-    TreeofThoughts,
-    ASearch,
-    BESTSearch,
-    BFS,
-    DFS,
-)
-
-load_dotenv()
-
-api_key = os.getenv("OPENAI_API_KEY")
-
-model = OpenAIChat(
-    openai_api_key=api_key,
-    max_tokens=4000,
-)
+from tree_of_thoughts import TotAgent, ToTDFSAgent, BFSWithTotAgent, ToTSAStrategy
 
 
-def extract_code_from_markdown(markdown_content: str):
-    """
-    Extracts code blocks from a Markdown string and returns them as a single string.
+TEST_SKELETON = '''"""
+Tests for {class_name}.
+"""
 
-    Args:
-    - markdown_content (str): The Markdown content as a string.
-
-    Returns:
-    - str: A single string containing all the code blocks separated by newlines.
-    """
-    # Regular expression for fenced code blocks
-    pattern = r"```(?:\w+\n)?(.*?)```"
-    matches = re.findall(pattern, markdown_content, re.DOTALL)
-
-    # Concatenate all code blocks separated by newlines
-    return "\n".join(code.strip() for code in matches)
+import pytest
 
 
-def create_test(cls):
-    """
-    Process the documentation for a given class using OpenAI model and save it in a Python file.
-    """
-    doc = inspect.getdoc(cls)
-    source = inspect.getsource(cls)
-    input_content = (
-        "Class Name:"
-        f" {cls.__name__}\n\nDocumentation:\n{doc}\n\nSource"
-        f" Code:\n{source}"
+class Test{class_name}:
+    """Tests for {class_name}.{doc_short}"""
+
+    def test_init(self):
+        """Test initialization with default parameters."""
+        # TODO: implement
+        pass
+
+    def test_run_returns_expected_type(self):
+        """Test that run() returns the correct type."""
+        # TODO: implement
+        pass
+'''
+
+
+def generate_test_skeleton(cls: Type) -> str:
+    doc = inspect.getdoc(cls) or ""
+    doc_first_line = doc.split("\n")[0] if doc else ""
+    return TEST_SKELETON.format(
+        class_name=cls.__name__,
+        doc_short=doc_first_line,
     )
 
-    # Process with OpenAI model (assuming the model's __call__ method takes this input and returns processed content)
-    processed_content = model(
-        TEST_WRITER_SOP_PROMPT(
-            input_content, "tree-of-thoughts", "tree of thoughts"
-        )
-    )
-    processed_content = extract_code_from_markdown(processed_content)
 
-    doc_content = f"# {cls.__name__}\n\n{processed_content}\n"
+def create_test_file(cls: Type, output_dir: str = "tests/tot"):
+    skeleton = generate_test_skeleton(cls)
+    os.makedirs(output_dir, exist_ok=True)
 
-    # Create the directory if it doesn't exist
-    dir_path = "tests/tot"
-    os.makedirs(dir_path, exist_ok=True)
+    file_path = os.path.join(output_dir, f"test_{cls.__name__.lower()}.py")
+    with open(file_path, "w") as f:
+        f.write(skeleton)
 
-    # Write the processed documentation to a Python file
-    file_path = os.path.join(dir_path, f"{cls.__name__.lower()}.py")
-    with open(file_path, "w") as file:
-        file.write(doc_content)
+    print(f"  [CREATED] {file_path}")
 
 
 def main():
     classes = [
-        ToTAgent,
-        TreeofThoughts,
-        MonteCarloSearch,
-        BFS,
-        DFS,
-        BESTSearch,
-        ASearch,
+        TotAgent,
+        ToTDFSAgent,
+        BFSWithTotAgent,
+        ToTSAStrategy,
     ]
+
+    print(f"Generating test skeletons for {len(classes)} classes...")
     threads = []
     for cls in classes:
-        thread = threading.Thread(target=create_test, args=(cls,))
+        thread = threading.Thread(target=create_test_file, args=(cls,))
         threads.append(thread)
         thread.start()
 
-    # Wait for all threads to complete
     for thread in threads:
         thread.join()
 
-    print("Tests generated in 'tests/memory' directory.")
+    print(f"\nDone. Test skeletons generated in 'tests/tot/'.")
 
 
 if __name__ == "__main__":

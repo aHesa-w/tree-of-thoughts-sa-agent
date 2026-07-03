@@ -1,20 +1,21 @@
-"""Example: using SA search strategy with Tree of Thoughts.
-
-Make sure OPENAI_API_KEY is set in your environment or .env file.
 """
-from dotenv import load_dotenv
+Usage: python examples/sa.py
 
-from tree_of_thoughts import TotAgent, ToTSAStrategy
+No external LLM required. The SA strategy generates candidates via
+TotAgent.run() which parses and evaluates thought strings.
+"""
+
+from tree_of_thoughts import ToTSAStrategy
+from tree_of_thoughts.agent import TotAgent
 from tree_of_thoughts.viz import format_search_result
 
-load_dotenv()
 
-# Create the agent (set use_openai_caller=True if you have OPENAI_API_KEY)
-tot_agent = TotAgent(use_openai_caller=False)
+# Create the agent (no internal LLM — external model drives generation)
+agent = TotAgent()
 
 # SA strategy
 sa_strategy = ToTSAStrategy(
-    agent=tot_agent,
+    agent=agent,
     initial_temperature=1.0,
     cooling_rate=0.95,
     min_temperature=0.01,
@@ -22,7 +23,6 @@ sa_strategy = ToTSAStrategy(
     reheat_threshold=5,
     early_stop_patience=10,
     max_iterations=30,
-    use_auto_evaluator=False,
 )
 
 initial_state = """

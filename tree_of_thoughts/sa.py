@@ -26,7 +26,7 @@ class ToTSAStrategy(SearchStrategy):
     that decreases as temperature cools, allowing escape from local optima.
 
     Args:
-        agent: TotAgent instance used to generate and score thoughts.
+        agent: TotAgent instance used to parse and score thoughts.
         initial_temperature: Starting temperature (default 1.0).
         cooling_rate: Multiplicative cooling factor per iteration (default 0.95).
         min_temperature: Temperature floor (default 0.01).

@@ -1,77 +1,109 @@
+"""Auto-generate documentation skeletons from inspect.
+
+No external model API calls. Uses inspect to gather info from module classes.
+"""
+
 import inspect
 import os
 import threading
 
-from dotenv import load_dotenv
-
-from scripts.auto_tests_docs.docs import DOCUMENTATION_WRITER_SOP
-from swarms import OpenAIChat
-
-###########
-
-
-###############
-
-load_dotenv()
-
-api_key = os.getenv("OPENAI_API_KEY")
-
-model = OpenAIChat(
-    model_name="gpt-4-1106-preview",
-    openai_api_key=api_key,
-    max_tokens=4000,
+from tree_of_thoughts import (
+    TotAgent,
+    ToTDFSAgent,
+    BFSWithTotAgent,
+    ToTSAStrategy,
 )
+from tree_of_thoughts.evaluator import AutoEvaluator, MathEvaluator, CodeEvaluator
 
 
-def process_documentation(
-    item,
-    module: str = "swarms.structs",
-    docs_folder_path: str = "docs/swarms/structs",
-):
-    """
-    Process the documentation for a given class or function using OpenAI model and save it in a Python file.
-    """
-    doc = inspect.getdoc(item)
-    source = inspect.getsource(item)
+DOC_SKELETON = """# {item_name}
+
+{doc}
+
+## Signature
+
+```python
+{signature}
+```
+
+## Public Methods
+
+| Method | Description |
+|--------|-------------|
+{method_rows}
+```
+"""
+
+
+def generate_doc(item, module: str = "tree_of_thoughts"):
+    doc = inspect.getdoc(item) or "(no documentation)"
     is_class = inspect.isclass(item)
-    item_type = "Class Name" if is_class else "Name"
-    input_content = (
-        f"{item_type}:"
-        f" {item.__name__}\n\nDocumentation:\n{doc}\n\nSource"
-        f" Code:\n{source}"
+    item_name = item.__name__
+
+    sig_str = ""
+    if is_class:
+        try:
+            sig = inspect.signature(item.__init__)
+            sig_str = f"class {item_name}{sig}"
+        except (ValueError, TypeError):
+            sig_str = f"class {item_name}"
+    else:
+        try:
+            sig = inspect.signature(item)
+            sig_str = f"def {item_name}{sig}"
+        except (ValueError, TypeError):
+            sig_str = f"def {item_name}(...)"
+
+    method_rows = ""
+    if is_class:
+        for name, method in inspect.getmembers(item, predicate=inspect.isfunction):
+            if name.startswith("_"):
+                continue
+            method_doc = inspect.getdoc(method) or ""
+            first_line = method_doc.split("\n")[0] if method_doc else ""
+            method_rows += f"| `{name}()` | {first_line} |\n"
+
+    return DOC_SKELETON.format(
+        item_name=item_name,
+        doc=doc,
+        signature=sig_str,
+        method_rows=method_rows,
     )
 
-    # Process with OpenAI model
-    processed_content = model(DOCUMENTATION_WRITER_SOP(input_content, module))
 
-    doc_content = f"# {item.__name__}\n\n{processed_content}\n"
+def process_item(item, docs_folder_path: str):
+    markdown = generate_doc(item)
+    os.makedirs(docs_folder_path, exist_ok=True)
 
-    # Create the directory if it doesn't exist
-    dir_path = docs_folder_path
-    os.makedirs(dir_path, exist_ok=True)
+    file_path = os.path.join(docs_folder_path, f"{item.__name__.lower()}.md")
+    with open(file_path, "w") as f:
+        f.write(markdown)
 
-    # Write the processed documentation to a Python file
-    file_path = os.path.join(dir_path, f"{item.__name__.lower()}.md")
-    with open(file_path, "w") as file:
-        file.write(doc_content)
-
-    print(f"Processed documentation for {item.__name__}. at {file_path}")
+    print(f"  [CREATED] {file_path}")
 
 
-def main(module: str = "docs/swarms/structs"):
-    items = []
+def main(docs_folder_path: str = "docs/tot"):
+    items = [
+        TotAgent,
+        ToTDFSAgent,
+        BFSWithTotAgent,
+        ToTSAStrategy,
+        AutoEvaluator,
+        MathEvaluator,
+        CodeEvaluator,
+    ]
+    print(f"Generating docs for {len(items)} items in '{docs_folder_path}'...")
 
     threads = []
     for item in items:
-        thread = threading.Thread(target=process_documentation, args=(item,))
+        thread = threading.Thread(target=process_item, args=(item, docs_folder_path))
         threads.append(thread)
         thread.start()
 
-    # Wait for all threads to complete
     for thread in threads:
         thread.join()
 
-    print(f"Documentation generated in {module} directory.")
+    print(f"\nDone. Documentation generated in '{docs_folder_path}'.")
 
 
 if __name__ == "__main__":

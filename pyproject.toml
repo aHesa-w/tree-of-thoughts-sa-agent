@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "tree-of-thoughts"
 version = "0.6.5"
-description = "Tree of Thoughts - Pytorch"
+description = "Tree of Thoughts - search strategies (BFS, DFS, SA) for LLM reasoning"
 authors = ["Kye Gomez <kye@apac.ai>"]
 license = "MIT"
-readme = "README.md"  # Assuming you have a README.md file
+readme = "README.md"
 homepage = "https://github.com/kyegomez/tree-of-thoughts"
-keywords = ["artificial intelligence", "deep learning", "optimizers", "Prompt Engineering"]
+keywords = ["artificial intelligence", "deep learning", "tree of thoughts", "search"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -17,12 +17,8 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
-swarms = "*"
-numpy = "*"
 pydantic = "*"
 loguru = "*"
-python-dotenv = "*"
-swarm-models = "*"
 
 
 
@@ -43,7 +39,7 @@ mypy-protobuf = "^3.0.0"
 
 [tool.autopep8]
 max_line_length = 80
-ignore = "E501,W6"  # or ["E501", "W6"]
+ignore = "E501,W6"
 in-place = true
 recursive = true
 aggressive = 3
@@ -55,4 +51,3 @@ line-length = 80
 line-length = 80
 target-version = ['py38']
 preview = true
-

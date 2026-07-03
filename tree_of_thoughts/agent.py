@@ -1,13 +1,8 @@
 import uuid
+import json
+import re
 from pydantic import BaseModel, Field
-from typing import Optional, Callable
-from swarms import Agent
-from swarm_models import OpenAIFunctionCaller
-from typing import Any
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from typing import Optional, Callable, Any
 
 
 TREE_OF_THOUGHTS_SYS_PROMPT = """
@@ -57,101 +52,98 @@ class Thought(BaseModel):
 
 class TotAgent:
     """
-    Represents a Tree of Thoughts (ToT) agent.
+    Tree of Thoughts (ToT) core agent.
+
+    A lightweight evaluator wrapper — no internal LLM calls.
+    External model drives thought generation; this agent handles
+    thought parsing, self-evaluation integration, and optional
+    external evaluator scoring.
+
+    Designed to be used as the building block for search strategies
+    (DFS, BFS, SA). The search strategies call agent.run() to
+    evaluate candidates; candidate generation is expected from
+    the external caller.
+
+    Available search strategies:
+        - ToTDFSAgent:     Depth-First Search with pruning
+        - BFSWithTotAgent: Breadth-First Search with breadth limit
+        - ToTSAStrategy:   Simulated Annealing with probabilistic acceptance
+
+    All strategies share the same SearchStrategy interface and return
+    a structured SearchResult.
+
+    Usage:
+        from tree_of_thoughts import TotAgent, ToTSAStrategy
+
+        # Basic agent — external model provides candidates
+        agent = TotAgent()
+
+        # With auto evaluator (math equations / code parse)
+        agent = TotAgent(auto_detect_evaluator=True)
+
+        # With custom external evaluator
+        agent = TotAgent(
+            evaluator=lambda task, thought: 1.0 if "correct" in thought else 0.0,
+        )
+
+        sa = ToTSAStrategy(agent=agent)
+        result = sa.search("Your task here")
+        print(result.final_answer, result.best_score)
+
+        # Compare strategies via benchmark script:
+        #   python scripts/benchmark.py --task "use 2 3 4 6 to make 24"
 
     Attributes:
-        id (str): The unique identifier for the agent.
-        max_loops (int): The maximum number of loops the agent can run.
-        model (OpenAIFunctionCaller): The OpenAI function caller for the agent.
-        agent (Agent): The agent responsible for running tasks.
-
-    Methods:
-        run(task: str) -> dict: Runs a task using the agent and returns the output as a dictionary.
+        id (str): Unique identifier for the agent.
+        evaluator: Optional external scoring function (task, thought) -> float.
+        auto_detect_evaluator (bool): Whether to auto-detect evaluation strategy.
     """
 
     def __init__(
         self,
         id: str = uuid.uuid4().hex,
-        max_loops: int = None,
-        use_openai_caller: bool = True,
-        model: Optional[Any] = None,
         evaluator: Optional[Callable[[str, str], float]] = None,
         auto_detect_evaluator: bool = False,
-        *args,
-        **kwargs,
     ):
         """
         Initializes a new instance of the TotAgent class.
 
         Args:
-            id (str, optional): The unique identifier for the agent. Defaults to a randomly generated UUID.
-            max_loops (int, optional): The maximum number of loops the agent can run. Defaults to None.
-            use_openai_caller (bool): Whether to use the default OpenAI function caller.
-            model: Optional custom model instance.
+            id (str, optional): The unique identifier for the agent.
             evaluator: Optional external evaluator function. Signature: (task, thought) -> float.
                 If provided, its score overrides the LLM self-evaluation.
             auto_detect_evaluator (bool): If True and no evaluator given, use AutoEvaluator
                 to automatically choose a scoring strategy based on task type.
         """
         self.id = id
-        self.max_loops = max_loops
-        self.model = model
         self.evaluator = evaluator
         self.auto_detect_evaluator = auto_detect_evaluator
 
-        if use_openai_caller:
-            self.model = OpenAIFunctionCaller(
-                system_prompt=TREE_OF_THOUGHTS_SYS_PROMPT,
-                base_model=Thought,
-                parallel_tool_calls=False,
-                openai_api_key=os.getenv("OPENAI_API_KEY"),
-                max_tokens=3000,
-            )
-
-        self.agent = Agent(
-            agent_name=f"ToT-Agent-{self.id}",
-            system_prompt=TREE_OF_THOUGHTS_SYS_PROMPT,
-            llm=self.model,
-            max_loops=1,
-            autosave=True,
-            dashboard=False,
-            verbose=True,
-            dynamic_temperature_enabled=True,
-            saved_state_path=f"tot_agent{self.id}.json",
-            user_name="swarms_corp",
-            retry_attempts=1,
-            context_length=200000,
-            return_step_meta=False,
-            *args,
-            **kwargs,
-        )
-
-    def run(self, task: Any) -> dict:
+    def run(self, thought_string: str) -> dict:
         """
-        Runs a task using the agent and returns the output as a dictionary.
+        Parse and evaluate a single thought string. No internal LLM call.
 
-        If an external evaluator is registered, its score overrides the LLM self-evaluation.
-        If auto_detect_evaluator is enabled and no evaluator is set, AutoEvaluator is used.
+        The external model provides the thought string; this method
+        parses it and applies evaluator scoring if configured.
 
         Args:
-            task (str): The task to be run by the agent.
+            thought_string (str): A JSON or structured string containing
+                the thought and optional LLM self-evaluation.
 
         Returns:
-            dict: The output of the agent as a dictionary.
+            dict: Parsed result with 'thought' and 'evaluation' keys.
         """
-        agent_output = self.agent.run(task)
         from tree_of_thoughts.base import string_to_dict
-        result = string_to_dict(agent_output)
+        result = string_to_dict(thought_string)
 
+        # Apply evaluator scoring (overrides LLM self-eval if present)
         if self.evaluator:
-            task_str = task if isinstance(task, str) else str(task)
             thought_str = result.get("thought", "")
-            result["evaluation"] = self.evaluator(task_str, thought_str)
+            result["evaluation"] = self.evaluator(thought_string, thought_str)
         elif self.auto_detect_evaluator:
             from tree_of_thoughts.evaluator import AutoEvaluator
-            task_str = task if isinstance(task, str) else str(task)
             thought_str = result.get("thought", "")
-            eval_score = AutoEvaluator.evaluate(task_str, thought_str)
+            eval_score = AutoEvaluator.evaluate(thought_string, thought_str)
             if eval_score >= 0:
                 result["evaluation"] = eval_score
 
